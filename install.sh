@@ -106,9 +106,12 @@ case ":$PATH:" in
   *) warn "add $BIN_DIR to your PATH (or restart your shell)" ;;
 esac
 
-# ── Interactive config (warnings + API key) ─────────────────────────────────
-say "configuration:"
-"$VENV/bin/python" "$PREFIX/silverd.py" config
+# ── Interactive config (warnings + API key) — skipped if already configured ──
+if [ -f "$HOME/.config/silver/config.json" ]; then
+  say "config already present — skipping setup (run 'silverd config' to change it)"
+else
+  "$VENV/bin/python" "$PREFIX/silverd.py" config
+fi
 
 # ── systemd user service ────────────────────────────────────────────────────
 if command -v systemctl >/dev/null 2>&1 && systemctl --user >/dev/null 2>&1; then

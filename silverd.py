@@ -74,7 +74,7 @@ SHERPA_MODEL_URL = (
 )
 SHERPA_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 RAW_BASE = os.environ.get(
     "SILVER_RAW_BASE", "https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main"
 )
@@ -482,6 +482,7 @@ class Recorder:
         return float(np.sqrt(np.mean(a * a)))
 
     def _noise_floor(self, seconds: float = 1.0) -> float:
+        np = _np()
         sd = _sd()
         chunk = 1600
         n = int(SAMPLE_RATE * seconds / chunk)
@@ -721,10 +722,35 @@ def cmd_version() -> None:
     print(f"Silver {VERSION}")
 
 
+def cmd_uninstall() -> None:
+    """Remove the daemon, venv, config, launcher, and systemd unit."""
+    import shutil
+    prefix = Path(__file__).resolve().parent
+    bin_dir = Path.home() / ".local" / "bin"
+    unit = Path.home() / ".config" / "systemd" / "user" / "silverd.service"
+    print("This will remove Silver entirely:")
+    print(f"  service:  {unit}")
+    print(f"  launcher: {bin_dir / 'silverd'}")
+    print(f"  daemon:   {prefix}")
+    print(f"  config:   {CONFIG_DIR}")
+    ans = _ask("Remove all of the above? [y/N] ")
+    if ans.strip().lower() not in ("y", "yes"):
+        print("Cancelled.")
+        return
+    subprocess.run(["systemctl", "--user", "disable", "--now", "silverd.service"],
+                   capture_output=True)
+    unit.unlink(missing_ok=True)
+    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    (bin_dir / "silverd").unlink(missing_ok=True)
+    shutil.rmtree(prefix, ignore_errors=True)
+    shutil.rmtree(CONFIG_DIR, ignore_errors=True)
+    print("Silver uninstalled. (System packages like espeak-ng/ffmpeg were left in place.)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Silver — wake-word voice companion")
     ap.add_argument("command", nargs="?", default="run",
-                    choices=["run", "config", "doctor", "speak", "wake-test", "update", "version"])
+                    choices=["run", "config", "doctor", "speak", "wake-test", "update", "version", "uninstall"])
     ap.add_argument("text", nargs="*")
     args = ap.parse_args()
 
@@ -736,6 +762,9 @@ def main() -> None:
         return
     if args.command == "version":
         cmd_version()
+        return
+    if args.command == "uninstall":
+        cmd_uninstall()
         return
     cfg = load_config()
     if args.command == "doctor":
