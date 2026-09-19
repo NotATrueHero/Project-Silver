@@ -5,9 +5,8 @@
 # open-vocab wake-word tokenizer). sherpa-onnx imports them lazily and does NOT
 # declare them as dependencies, so they must be listed explicitly.
 #
-# en-core-web-sm is spacy's English model, needed by kokoro's G2P (misaki).
-# misaki auto-downloads it on first use; listing it here makes the install
-# deterministic instead of a surprise network fetch at speak-time.
+# NOTE: kokoro's G2P (misaki) also needs spacy's en_core_web_sm model, which is
+# NOT on PyPI — install.sh fetches it from GitHub releases separately.
 sounddevice
 numpy
 faster-whisper
@@ -15,6 +14,5 @@ sherpa-onnx
 sentencepiece
 pypinyin
 kokoro>=0.9.4
-en-core-web-sm==3.8.0
 soundfile
 edge-tts

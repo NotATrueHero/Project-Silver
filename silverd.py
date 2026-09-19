@@ -74,7 +74,7 @@ SHERPA_MODEL_URL = (
 )
 SHERPA_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 RAW_BASE = os.environ.get(
     "SILVER_RAW_BASE", "https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main"
 )

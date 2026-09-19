@@ -81,6 +81,11 @@ say "installing Python dependencies (this pulls torch for Kokoro — a few hundr
 curl -fsSL "$RAW_BASE/requirements.txt" -o "$PREFIX/requirements.txt"
 uv pip install --python "$VENV/bin/python" --quiet -r "$PREFIX/requirements.txt"
 
+# spacy's English model (kokoro's G2P) — not on PyPI, so fetch from GitHub releases.
+say "installing spacy English model (kokoro G2P)…"
+uv pip install --python "$VENV/bin/python" \
+  "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
 # ── Install the daemon ──────────────────────────────────────────────────────
 say "installing silverd"
 if [ -f "${SILVERD_SOURCE:-}" ]; then
