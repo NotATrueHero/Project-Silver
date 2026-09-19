@@ -179,3 +179,6 @@ Logs: `~/.config/silver/silverd.log`.
 ## License
 
 [MIT](LICENSE) © NotATrueHero
+
+## HUMAN NOTE
+It's just vibe coded slop. But an open concept for anyone who wishes to improve upon it. This entire github repo was developed with Hermes using the Deepseek v4 Pro api. 
