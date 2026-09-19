@@ -78,9 +78,8 @@ else
 fi
 
 say "installing Python dependencies (this pulls torch for Kokoro — a few hundred MB, one-time)…"
-uv pip install --python "$VENV/bin/python" --quiet \
-  sounddevice numpy faster-whisper sherpa-onnx sentencepiece \
-  "kokoro>=0.9.4" soundfile edge-tts
+curl -fsSL "$RAW_BASE/requirements.txt" -o "$PREFIX/requirements.txt"
+uv pip install --python "$VENV/bin/python" --quiet -r "$PREFIX/requirements.txt"
 
 # ── Install the daemon ──────────────────────────────────────────────────────
 say "installing silverd"

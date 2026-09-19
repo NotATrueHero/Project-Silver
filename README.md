@@ -79,6 +79,8 @@ silverd speak hi   # test her voice (and the volume duck)
 silverd wake-test  # just the wake word + chime — no model calls
 silverd run        # start listening
 silverd config     # re-run setup
+silverd update     # self-update to the latest release
+silverd version    # show the installed version
 ```
 
 Run her on login:

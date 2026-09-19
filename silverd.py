@@ -74,6 +74,11 @@ SHERPA_MODEL_URL = (
 )
 SHERPA_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
+VERSION = "0.3.0"
+RAW_BASE = os.environ.get(
+    "SILVER_RAW_BASE", "https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main"
+)
+
 
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}"
@@ -663,15 +668,74 @@ def cmd_doctor(cfg: dict[str, Any]) -> None:
     log("doctor: done")
 
 
+def _uv_bin() -> Optional[str]:
+    import shutil
+    uv = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
+    return uv if uv and Path(uv).exists() else None
+
+
+def cmd_update() -> None:
+    """Self-update: fetch the latest silverd.py + requirements.txt and apply them."""
+    import shutil
+    import tempfile
+    log(f"update: current v{VERSION}; checking {RAW_BASE}/silverd.py")
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".py")
+        os.close(fd)
+        urllib.request.urlretrieve(RAW_BASE + "/silverd.py", tmp_path)
+        src = Path(tmp_path).read_text(encoding="utf-8")
+        m = re.search(r'^VERSION\s*=\s*"([^"]+)"', src, re.M)
+        latest = m.group(1) if m else None
+        if latest and latest == VERSION:
+            log(f"update: already at v{VERSION}")
+            return
+        self_path = Path(__file__).resolve()
+        shutil.copy(tmp_path, self_path)
+        os.chmod(self_path, 0o755)
+        log(f"update: silverd.py -> v{latest or 'unknown'}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+    uv = _uv_bin()
+    if uv:
+        req_path = None
+        try:
+            fd, req_path = tempfile.mkstemp(suffix=".txt")
+            os.close(fd)
+            urllib.request.urlretrieve(RAW_BASE + "/requirements.txt", req_path)
+            log("update: refreshing dependencies…")
+            subprocess.run([uv, "pip", "install", "--python", sys.executable,
+                            "-r", req_path])
+        except Exception as e:
+            log(f"update: dependency refresh failed: {e}")
+        finally:
+            if req_path and os.path.exists(req_path):
+                os.unlink(req_path)
+    else:
+        log("update: uv not found — re-run install.sh to refresh dependencies")
+    log("update: done — restart the service or run 'silverd run'")
+
+
+def cmd_version() -> None:
+    print(f"Silver {VERSION}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Silver — wake-word voice companion")
     ap.add_argument("command", nargs="?", default="run",
-                    choices=["run", "config", "doctor", "speak", "wake-test"])
+                    choices=["run", "config", "doctor", "speak", "wake-test", "update", "version"])
     ap.add_argument("text", nargs="*")
     args = ap.parse_args()
 
     if args.command == "config":
         interactive_config()
+        return
+    if args.command == "update":
+        cmd_update()
+        return
+    if args.command == "version":
+        cmd_version()
         return
     cfg = load_config()
     if args.command == "doctor":
