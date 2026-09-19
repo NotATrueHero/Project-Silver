@@ -34,64 +34,62 @@ install_deps() {
   case "$PM" in
     pacman)
       say "installing deps (pacman)…"
-      sudo pacman -S --needed --noconfirm python python-pip espeak-ng ffmpeg curl >/dev/null
+      sudo pacman -S --needed --noconfirm espeak-ng ffmpeg curl >/dev/null
       ;;
     apt)
       say "installing deps (apt)…"
       sudo apt-get update -qq >/dev/null
-      sudo apt-get install -y -qq python3 python3-venv python3-pip espeak-ng ffmpeg curl >/dev/null
+      sudo apt-get install -y -qq espeak-ng ffmpeg curl >/dev/null
       ;;
     dnf)
       say "installing deps (dnf)…"
-      sudo dnf install -y -q python3 python3-pip espeak-ng ffmpeg curl >/dev/null
+      sudo dnf install -y -q espeak-ng ffmpeg curl >/dev/null
       ;;
     zypper)
       say "installing deps (zypper)…"
-      sudo zypper install -y -q python3 python3-pip espeak-ng ffmpeg curl >/dev/null
+      sudo zypper install -y -q espeak-ng ffmpeg curl >/dev/null
       ;;
     *)
       warn "unknown package manager — skipping system deps."
-      warn "You'll need: python3, pip, espeak-ng, ffmpeg."
+      warn "You'll need: espeak-ng, ffmpeg, curl."
       ;;
   esac
 }
 
-command -v python3 >/dev/null 2>&1 || install_deps
+command -v curl >/dev/null 2>&1 || install_deps
 command -v espeak-ng >/dev/null 2>&1 || install_deps
 command -v ffmpeg >/dev/null 2>&1 || install_deps
 
-# ── Python venv + dependencies ──────────────────────────────────────────────
-say "creating venv at $VENV"
+# ── Python (via uv, pinned 3.12 — kokoro 0.9.x needs <3.13) ─────────────────
+if ! command -v uv >/dev/null 2>&1; then
+  say "installing uv (manages its own Python 3.12, no system-python headaches)…"
+  curl -LsSf https://astral.sh/uv/install.sh | sh || die "uv install failed"
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+
+say "creating venv at $VENV (Python 3.12)…"
 mkdir -p "$PREFIX"
 if [ ! -x "$VENV/bin/python" ]; then
-  python3 -m venv "$VENV" || die "failed to create venv (is python3-venv installed?)"
+  uv venv --python 3.12 "$VENV" || die "failed to create venv"
 fi
 
 say "installing Python dependencies (this pulls torch for Kokoro — a few hundred MB, one-time)…"
-"$VENV/bin/pip" install --quiet --upgrade pip
-"$VENV/bin/pip" install --quiet \
+uv pip install --python "$VENV/bin/python" --quiet \
   sounddevice numpy faster-whisper sherpa-onnx \
   "kokoro>=0.9.4" soundfile edge-tts
 
 # ── Install the daemon ──────────────────────────────────────────────────────
 say "installing silverd"
-# Fetch silverd.py from its canonical location (overridable via SILVERD_URL).
 if [ -f "${SILVERD_SOURCE:-}" ]; then
   cp "$SILVERD_SOURCE" "$PREFIX/silverd.py"
 else
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$SILVERD_URL" -o "$PREFIX/silverd.py" || die "failed to download silverd.py"
-  else
-    die "curl is required and not found"
-  fi
+  curl -fsSL "$SILVERD_URL" -o "$PREFIX/silverd.py" || die "failed to download silverd.py"
 fi
 chmod +x "$PREFIX/silverd.py"
 
 # Fetch the persona (for agent mode / reference) alongside the daemon.
 mkdir -p "$PREFIX/profile"
-if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$SOUL_URL" -o "$PREFIX/profile/SOUL.md" 2>/dev/null || true
-fi
+curl -fsSL "$SOUL_URL" -o "$PREFIX/profile/SOUL.md" 2>/dev/null || true
 
 # Launcher on PATH
 mkdir -p "$BIN_DIR"
@@ -147,6 +145,7 @@ say "Done. Quick start:"
 say "  silverd doctor     # verify the stack"
 say "  silverd speak hi   # test her voice"
 say "  silverd run        # start listening for the wake word"
+say "  curl -fsSL $RAW_BASE/uninstall.sh | sh   # uninstall"
 echo
 warn "⚠  Silver has access to this machine by default (agent mode)."
 warn "   She answers to the wake phrase with full tool access. You've been warned."

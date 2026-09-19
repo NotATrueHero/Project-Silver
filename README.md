@@ -53,12 +53,23 @@ into the microphone. There is no voice authentication in the current release.
 curl -fsSL https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main/install.sh | sh
 ```
 
-One command. It installs system dependencies, a Python virtual environment, and the
-`silverd` daemon, asks a few questions (backend, API key, voice engine, wake
-phrases), and drops in a `systemd --user` service so she starts with your session.
+One command. It installs system dependencies (`espeak-ng`, `ffmpeg`), a pinned
+**Python 3.12** environment (via `uv`, so a system Python 3.13 doesn't break the
+Kokoro dependency), and the `silverd` daemon, asks a few questions (backend, API
+key, voice engine, wake phrases), and drops in a `systemd --user` service so she
+starts with your session.
 
 Targets **Arch / PipeWire** first and degrades gracefully on Debian, Fedora, and
 openSUSE. On unknown distros it installs what it can and tells you the rest.
+
+## Uninstall
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main/uninstall.sh | sh
+```
+
+Removes the daemon, the Python environment, config, the `silverd` launcher, and the
+systemd unit. System packages (`espeak-ng`, `ffmpeg`) are left in place.
 
 ## Using Silver
 

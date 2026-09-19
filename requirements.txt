@@ -1,3 +1,5 @@
+# Requires Python 3.12 (kokoro 0.9.x pins <3.13). install.sh pins this via
+# `uv venv --python 3.12`; install with `uv pip install -r requirements.txt`.
 sounddevice
 numpy
 faster-whisper
