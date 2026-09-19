@@ -74,7 +74,7 @@ SHERPA_MODEL_URL = (
 )
 SHERPA_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
-VERSION = "0.4.2"
+VERSION = "0.4.3"
 RAW_BASE = os.environ.get(
     "SILVER_RAW_BASE", "https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main"
 )
@@ -125,22 +125,36 @@ def _ask(prompt: str, default: str = "") -> str:
 
 
 def _ask_secret(prompt: str) -> str:
+    """Read a secret from /dev/tty, echoing '*' per character so the input is visible."""
     try:
+        import termios
+        import tty as _tty
         with open("/dev/tty", "r") as tty:
-            import termios
             sys.stderr.write(prompt)
             sys.stderr.flush()
             fd = tty.fileno()
             old = termios.tcgetattr(fd)
+            chars: list[str] = []
             try:
-                new = termios.tcgetattr(fd)
-                new[3] &= ~termios.ECHO
-                termios.tcsetattr(fd, termios.TCSADRAIN, new)
-                val = tty.readline().strip()
+                _tty.setcbreak(fd)  # non-canonical + no echo; we echo '*' ourselves
+                while True:
+                    ch = tty.read(1)
+                    if ch in ("\r", "\n"):
+                        break
+                    if ch == "\x03":  # Ctrl+C
+                        raise KeyboardInterrupt
+                    if ch in ("\x7f", "\x08"):  # backspace
+                        if chars:
+                            chars.pop()
+                            sys.stderr.write("\b \b")
+                    elif ch and ch.isprintable():
+                        chars.append(ch)
+                        sys.stderr.write("*")
+                    sys.stderr.flush()
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
         sys.stderr.write("\n")
-        return val
+        return "".join(chars).strip()
     except Exception:
         return _ask(prompt)
 
@@ -175,6 +189,11 @@ def interactive_config() -> dict[str, Any]:
         except ValueError:
             pass
     save_config(cfg)
+    key_state = "set" if (cfg.get("api_key") or cfg.get("agent_key")) else "NOT SET"
+    print(f"Saved. backend={cfg['backend']}  model={cfg['model']}  key={key_state}")
+    if cfg["backend"] == "agent":
+        print(f"  NOTE: agent mode talks to a Hermes gateway at agent_url ({cfg['agent_url']}).")
+        print("  If no gateway is running there, switch to 'lite' mode.")
     print("Done. Start with:  silverd run")
     return cfg
 
