@@ -69,13 +69,17 @@ fi
 
 say "creating venv at $VENV (Python 3.12)…"
 mkdir -p "$PREFIX"
-if [ ! -x "$VENV/bin/python" ]; then
+if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' 2>/dev/null; then
+  : # existing Python 3.12 venv — keep it
+else
+  say "  (re)creating venv with Python 3.12…"
+  rm -rf "$VENV"
   uv venv --python 3.12 "$VENV" || die "failed to create venv"
 fi
 
 say "installing Python dependencies (this pulls torch for Kokoro — a few hundred MB, one-time)…"
 uv pip install --python "$VENV/bin/python" --quiet \
-  sounddevice numpy faster-whisper sherpa-onnx \
+  sounddevice numpy faster-whisper sherpa-onnx sentencepiece \
   "kokoro>=0.9.4" soundfile edge-tts
 
 # ── Install the daemon ──────────────────────────────────────────────────────
