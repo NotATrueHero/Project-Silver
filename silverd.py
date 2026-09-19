@@ -35,6 +35,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+# Silence third-party library chatter (torch FutureWarnings, HF Hub
+# "unauthenticated", kokoro model-load notices). Not actionable for a voice app.
+import logging as _logging
+import warnings as _warnings
+_warnings.filterwarnings("ignore")
+_logging.getLogger("huggingface_hub").setLevel(_logging.ERROR)
+
 CONFIG_DIR = Path(os.environ.get("SILVER_CONFIG_DIR", Path.home() / ".config" / "silver"))
 CONFIG_PATH = CONFIG_DIR / "config.json"
 CACHE_DIR = Path(os.environ.get("SILVER_CACHE_DIR", CONFIG_DIR / "cache"))
@@ -74,7 +81,7 @@ SHERPA_MODEL_URL = (
 )
 SHERPA_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
-VERSION = "0.4.3"
+VERSION = "0.5.0"
 RAW_BASE = os.environ.get(
     "SILVER_RAW_BASE", "https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main"
 )
@@ -279,6 +286,15 @@ def make_chime(rate: int = 44100) -> Any:
     return a.astype(np.float32)
 
 
+def make_listen_cue(rate: int = 44100) -> Any:
+    """A soft, low single blip — 'your turn to speak'. Distinct from the wake chime."""
+    np = _np()
+    t = np.linspace(0, 0.12, int(rate * 0.12), endpoint=False)
+    a = np.sin(2 * np.pi * 330.0 * t) * np.exp(-t * 40)
+    a = a / (np.abs(a).max() + 1e-6) * 0.35
+    return a.astype(np.float32)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Wake word (sherpa-onnx, open vocabulary)
 # ────────────────────────────────────────────────────────────────────────────
@@ -391,12 +407,17 @@ def tts_speak(text: str, engine: str, voice: str) -> tuple[Any, int]:
     raise RuntimeError(f"unknown tts_engine {engine!r}")
 
 
+_kokoro_pipe: Any = None  # module-level cache — the 327 MB model loads once
+
+
 def _tts_kokoro(text: str, voice: str) -> tuple[Any, int]:
+    global _kokoro_pipe
     from kokoro import KPipeline
-    pipe = KPipeline(lang_code="a")
+    if _kokoro_pipe is None:
+        _kokoro_pipe = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
     np = _np()
     chunks = []
-    for _gs, _ps, audio in pipe(text, voice=voice or "af_heart"):
+    for _gs, _ps, audio in _kokoro_pipe(text, voice=voice or "af_heart"):
         chunks.append(audio)
     if not chunks:
         return np.zeros(1, dtype=np.float32), 24000
@@ -486,68 +507,7 @@ class Brain:
                            "stream": False}, headers)
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Recorder (energy VAD over the live stream)
-# ────────────────────────────────────────────────────────────────────────────
-
-class Recorder:
-    def __init__(self, cfg: dict[str, Any]):
-        self.cfg = cfg
-        self._stream = None
-
-    def _rms(self, frame) -> float:
-        np = _np()
-        a = np.asarray(frame, dtype=np.float32) / 32768.0
-        return float(np.sqrt(np.mean(a * a)))
-
-    def _noise_floor(self, seconds: float = 1.0) -> float:
-        np = _np()
-        sd = _sd()
-        chunk = 1600
-        n = int(SAMPLE_RATE * seconds / chunk)
-        levels = []
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16",
-                            blocksize=chunk, device=self.cfg.get("mic_device")) as st:
-            for _ in range(n):
-                levels.append(self._rms(st.read(chunk)[0]))
-        return float(max(np.median(levels) * 2.0, 0.002))
-
-    def record(self) -> str:
-        np = _np()
-        sd = _sd()
-        floor = self.cfg.get("vad_floor") or self._noise_floor()
-        chunk = 1600
-        max_chunks = int(self.cfg["max_prompt_seconds"] * SAMPLE_RATE / chunk)
-        silence_chunks = int(self.cfg["silence_seconds"] * SAMPLE_RATE / chunk)
-        frames: list[Any] = []
-        silent = 0
-        started = False
-        # small pre-roll so the first word isn't clipped
-        pre = []
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16",
-                            blocksize=chunk, device=self.cfg.get("mic_device")) as st:
-            while True:
-                data = st.read(chunk)[0][:, 0]
-                level = self._rms(data)
-                if not started:
-                    pre.append(data)
-                    if len(pre) > 6:
-                        pre.pop(0)
-                    if level > floor:
-                        started = True
-                        frames = list(pre)
-                    continue
-                frames.append(data)
-                if level > floor:
-                    silent = 0
-                else:
-                    silent += 1
-                    if silent >= silence_chunks:
-                        break
-                if len(frames) >= max_chunks:
-                    break
-        audio = np.concatenate(frames) if frames else np.zeros(0, dtype=np.int16)
-        return audio
+# (energy VAD moved inline into Silver.run — single stream)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -569,61 +529,104 @@ class Silver:
         audio, rate = tts_speak(text, self.cfg["tts_engine"], self.cfg["tts_voice"])
         with VolumeDuck(self.cfg["silver_volume"]):
             play(audio, rate, device=self.cfg.get("output_device"))
+            # a soft "your turn" cue, only after she actually finishes talking
+            play(make_listen_cue(), 44100, device=self.cfg.get("output_device"))
+
+    def _handle_utterance(self, frames: list) -> None:
+        np = _np()
+        pcm = np.concatenate(frames) if frames else np.zeros(0, dtype=np.int16)
+        dur = len(pcm) / SAMPLE_RATE
+        if dur < 0.3:
+            return  # too short — false trigger / click
+        text = self.stt.transcribe(pcm)
+        log(f"silver: heard {len(text)} chars: {text!r}")
+        if not text:
+            return
+        try:
+            reply = self.brain.ask(text)
+            log(f"silver: reply {len(reply)} chars")
+        except Exception as e:
+            log(f"silver: brain error: {e}")
+            if self.cfg.get("backend") == "agent":
+                log("silver: hint — agent mode needs a Hermes api_server at agent_url; "
+                    "is the gateway running? (or set backend to 'lite')")
+            reply = "Sorry, something went wrong on my end."
+        self._speak(reply)
 
     def run(self) -> None:
         log(f"silver: starting (phrases={self.cfg['wake_phrases']}, "
             f"tts={self.cfg['tts_engine']}, backend={self.cfg['backend']})")
         sd = _sd()
-        chunk = self.wake.frame_length
+        np = _np()
+        chunk = 1600  # ~100 ms at 16 kHz
+        silence_chunks = max(1, int(self.cfg["silence_seconds"] * SAMPLE_RATE / chunk))
+        max_chunks = int(self.cfg["max_prompt_seconds"] * SAMPLE_RATE / chunk)
+        idle_timeout = self.cfg["idle_timeout"]
+
+        awake = False
+        started = False
+        frames: list[Any] = []
+        pre: list[Any] = []
+        silent = 0
+        floor = float(self.cfg.get("vad_floor") or 0.002)
+        floor_samples: list[float] = []
         last_utterance = time.time()
+
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16",
                             blocksize=chunk, device=self.cfg.get("mic_device")) as st:
-            # One stream: feed every chunk to the wake engine when asleep;
-            # when awake we switch to the Recorder's own stream for silence
-            # detection (it opens/closes its own InputStream).
-            awake = False
             log("silver: listening for wake word")
             while True:
-                if awake:
-                    # Re-open a recording stream (our stream is paused here).
-                    # Drain: the recorder manages its own capture.
-                    rec = Recorder(self.cfg)
-                    log("silver: listening for a prompt…")
-                    pcm = rec.record()
-                    dur = len(pcm) / SAMPLE_RATE
-                    if dur < 0.3:
-                        # silence — count toward idle, otherwise it's a failed prompt
-                        if time.time() - last_utterance > self.cfg["idle_timeout"]:
-                            log("silver: idle timeout — back to sleep")
-                            awake = False
-                            self.wake = WakeEngine(self.cfg["wake_phrases"], self.cfg["sensitivity"])
-                            continue
-                    else:
-                        last_utterance = time.time()
-                        text = self.stt.transcribe(pcm)
-                        log(f"silver: heard {len(text)} chars: {text!r}")
-                        if text:
-                            try:
-                                reply = self.brain.ask(text)
-                                log(f"silver: reply {len(reply)} chars")
-                                self._speak(reply)
-                            except Exception as e:
-                                log(f"silver: brain/tts error: {e}")
-                                if self.cfg.get("backend") == "agent":
-                                    log("silver: hint — agent mode needs a Hermes api_server at "
-                                        "agent_url; is the gateway running? (or set backend to 'lite')")
-                                self._speak("Sorry, something went wrong on my end.")
-                    # resume the wake stream (open a fresh one)
-                    awake = False
-                    self.wake = WakeEngine(self.cfg["wake_phrases"], self.cfg["sensitivity"])
-                    log("silver: listening for wake word")
                 data = st.read(chunk)[0][:, 0]
-                match = self.wake.process(data)
-                if match:
-                    log(f"silver: wake word '{match}' detected")
-                    with VolumeDuck(self.cfg["silver_volume"]):
-                        play(make_chime(), 44100, device=self.cfg.get("output_device"))
-                    awake = True
+                rms = float(np.sqrt(np.mean((np.asarray(data, np.float32) / 32768.0) ** 2)))
+
+                if not awake:
+                    match = self.wake.process(data)
+                    if match:
+                        log(f"silver: wake word '{match}' detected")
+                        with VolumeDuck(self.cfg["silver_volume"]):
+                            play(make_chime(), 44100, device=self.cfg.get("output_device"))
+                        awake = True
+                        started = False
+                        frames, pre, silent = [], [], 0
+                        last_utterance = time.time()
+                    continue
+
+                # awake — active listening: keep capturing turns, no re-wake needed
+                if not started:
+                    if not self.cfg.get("vad_floor"):
+                        floor_samples.append(rms)
+                        if len(floor_samples) > 10:
+                            floor_samples.pop(0)
+                        floor = max(float(np.median(floor_samples)) * 2.0, 0.002)
+                    pre.append(data)
+                    if len(pre) > 6:
+                        pre.pop(0)
+                    if rms > floor:
+                        started = True
+                        frames = list(pre)
+                        floor_samples = []
+                    elif time.time() - last_utterance > idle_timeout:
+                        log("silver: idle timeout — back to sleep")
+                        awake = False
+                        started = False
+                        frames, pre = [], []
+                    continue
+
+                frames.append(data)
+                if rms > floor:
+                    silent = 0
+                else:
+                    silent += 1
+                    if silent >= silence_chunks:
+                        self._handle_utterance(frames)
+                        started = False
+                        frames, pre, silent = [], [], 0
+                        last_utterance = time.time()
+                        continue
+                if len(frames) >= max_chunks:
+                    self._handle_utterance(frames)
+                    started = False
+                    frames, pre, silent = [], [], 0
                     last_utterance = time.time()
 
 
