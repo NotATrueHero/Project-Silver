@@ -18,7 +18,7 @@ speak into the microphone. There is no voice authentication in v1.
 ## Install
 
 ```sh
-curl -fsSL https://<your-host>/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main/install.sh | sh
 ```
 
 One command, like Tailscale. It installs system deps, a Python venv, the `silverd`

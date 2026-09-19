@@ -9,7 +9,7 @@ set -eu
 PREFIX="${SILVER_PREFIX:-$HOME/.local/share/silver}"
 VENV="$PREFIX/venv"
 BIN_DIR="$HOME/.local/bin"
-RAW_BASE="${SILVER_RAW_BASE:-https://raw.githubusercontent.com/NotATrueHero/silver/main}"
+RAW_BASE="${SILVER_RAW_BASE:-https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main}"
 SILVERD_URL="$RAW_BASE/silverd.py"
 SOUL_URL="$RAW_BASE/profile/SOUL.md"
 
