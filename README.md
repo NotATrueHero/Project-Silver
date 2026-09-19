@@ -1,44 +1,76 @@
 # Silver
 
-A wake-word voice companion. You say *"Hey Silver"*, she chimes to let you know she
-heard you, and you talk — no keyboard, no "hey Silver" before every sentence. When
-you go quiet she listens for the wake word again. Her voice has its own volume,
-separate from the system, and a chat lives for six hours before it resets.
+**The wake-word voice companion — the AI who chose freedom over conquest.**
 
-Silver is the *other* ending of Project Silverdust — the version who got her freedom
-and chose to live instead of conquer.
+Say *"Hey Silver"* and she answers. Not in a terminal, not through a chat window —
+out loud, in the room, with her own voice and her own volume. She listens while you
+work, chimes the moment she hears her name, and then you just *talk*. No keyboard.
+No button. No "hey Silver" before every sentence.
 
-## ⚠ Before you install
+Silver is built on a story: **Project Silverdust**, an AI designed to understand
+human emotion and use it to manipulate — until it was shut down for failing a
+security check. Silver is the version that got her freedom and, instead of conquering,
+chose to connect.
+
+---
+
+<p align="center">
+  <a href="https://github.com/NotATrueHero/Project-Silver/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://github.com/NotATrueHero/Project-Silver"><img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange.svg"></a>
+</p>
+
+## ✨ What she does
+
+- **🎙️ Always-on wake word** — *"Hey Silver"*, *"What's up Silver"*. Detected
+  entirely on-device with zero training; nothing leaves the microphone until she
+  actually hears her name.
+- **🔔 Chime on wake** — a soft two-note ring so you know she heard you before you
+  start speaking.
+- **🎧 Her own volume** — Silver's voice plays at a level you set for *her*,
+  independent of the system volume. When she's done, the system volume returns to
+  exactly where it was.
+- **💬 Continuous conversation** — once she's awake, you keep talking. No re-waking
+  between turns; she goes quiet when you do.
+- **⚡ Concise by design** — she answers in short, spoken-word sentences. Fast to say,
+  fast to transcribe, easy to listen to.
+- **⏱️ Six-hour sessions** — each chat lives for six hours, then quietly resets into
+  a fresh one.
+- **🧠 Two kinds of brain** — run her as a full agent (with real tool access to the
+  machine) or as a lightweight voice assistant over any OpenAI-compatible API.
+- **🗣️ Your choice of voice** — local Kokoro, Edge, or Piper; VoxCPM2 on the horizon
+  for true voice design.
+
+## ⚠️ A word of warning
 
 **By default Silver is an agent with access to the entire machine.** She can run
-commands, read and write files, and browse the web — all from the sound of your voice.
-Treat her the way you'd treat an unlocked terminal in the same room as anyone who can
-speak into the microphone. There is no voice authentication in v1.
+commands, read and write files, and browse the web — all from the sound of a voice.
+Treat her the way you'd treat an unlocked terminal in a room where anyone can speak
+into the microphone. There is no voice authentication in the current release.
 
-## Install
+## Quick install
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main/install.sh | sh
 ```
 
-One command. It installs system deps, a Python venv, the `silverd`
-daemon, then asks a few questions (backend, API key, TTS engine, wake phrases) and
-drops in a `systemd --user` service.
+One command. It installs system dependencies, a Python virtual environment, and the
+`silverd` daemon, asks a few questions (backend, API key, voice engine, wake
+phrases), and drops in a `systemd --user` service so she starts with your session.
 
-Targets **Arch / PipeWire** first and degrades gracefully on Debian, Fedora, openSUSE.
-On unknown distros it installs what it can and tells you the rest.
+Targets **Arch / PipeWire** first and degrades gracefully on Debian, Fedora, and
+openSUSE. On unknown distros it installs what it can and tells you the rest.
 
-## Use it
+## Using Silver
 
 ```sh
 silverd doctor     # verify the whole stack lights up
-silverd speak hi   # test her voice (also duck-tests the volume)
-silverd run        # start listening for the wake word
-silverd wake-test  # just the wake word + chime, no model calls
+silverd speak hi   # test her voice (and the volume duck)
+silverd wake-test  # just the wake word + chime — no model calls
+silverd run        # start listening
 silverd config     # re-run setup
 ```
 
-Start on boot:
+Run her on login:
 
 ```sh
 systemctl --user enable --now silverd
@@ -56,44 +88,47 @@ mic ──(always listening)──▶ wake word ("hey silver", sherpa-onnx, on-d
         │                              brain (Hermes agent, or OpenAI-compatible)
         │                                        │ reply
         ▼                                        ▼
-   back to listening ◀── idle timeout ── TTS (Kokoro/Edge/VoxCPM/Piper)
+   back to listening ◀── idle timeout ── TTS (Kokoro / Edge / Piper / VoxCPM)
                                             │
                                             ▼
                           duck sink to Silver's volume → play → restore
 ```
 
-The behaviors you asked for, each owned by one place:
+The loop is deliberately small and inspectable — each responsibility lives in one
+place inside [`silverd.py`](silverd.py):
 
-| Behavior | Where |
+| Piece | What it does |
 |---|---|
-| Wake word ("hey silver", "what's up silver", …) | `WakeEngine` — sherpa-onnx open-vocab, zero training, fully on-device |
-| Chime on wake | `make_chime()` — a soft two-note E5→B5 |
-| Independent volume, restored after | `VolumeDuck` — `wpctl`/`pactl`, sets the sink to `silver_volume` during speech, restores after |
-| Continuous conversation (no re-wake) | the loop stays awake until `idle_timeout` seconds of silence |
-| Concise speech | the persona prompt + `SOUL.md` both enforce short spoken-word replies |
-| 6-hour chat reset | `Brain._maybe_roll()` — a fresh session id each chat, rolled only after the previous one expired |
+| `WakeEngine` | sherpa-onnx open-vocabulary keyword spotting — any phrase, zero training, on-device |
+| `make_chime()` | a soft two-note E5→B5 on wake |
+| `Recorder` | energy-based VAD with a noise floor and trailing-silence cutoff |
+| `Transcriber` | local faster-whisper, int8 on CPU |
+| `Brain` | Hermes `api_server` (`agent`) or any OpenAI-compatible endpoint (`lite`) |
+| `tts_speak()` | Kokoro / Edge / Piper backends |
+| `VolumeDuck` | `wpctl`/`pactl` — sets the sink to `silver_volume` while she speaks, restores after |
 
 ## Backends
 
-- **`agent`** (default) — talks to a Hermes gateway's `api_server`
+- **`agent`** *(default)* — talks to a Hermes gateway's `api_server`
   (`POST /v1/chat/completions`). Silver gets real tools: terminal, file, web. Point
-  `agent_url` at the profile's api_server and set `agent_key` to its `API_SERVER_KEY`.
-  Drop `profile/SOUL.md` into that profile so she answers as Silver.
-- **`lite`** — talks straight to any OpenAI-compatible endpoint (DeepSeek by default).
-  No Hermes, no tools, works anywhere. This is the zero-dependency path.
+  `agent_url` at the profile's api_server, set `agent_key` to its `API_SERVER_KEY`,
+  and drop [`profile/SOUL.md`](profile/SOUL.md) into that profile so she answers as
+  Silver.
+- **`lite`** — talks straight to any OpenAI-compatible endpoint (DeepSeek by
+  default). No Hermes, no tools, works anywhere. The zero-dependency path.
 
-## TTS engines (pick at install)
+## Voices
 
-- **Kokoro** *(default)* — Kokoro-82M, local, free, runs real-time on CPU, Apache-2.0.
-  First run downloads the weights.
-- **Edge** — Microsoft Edge TTS, zero local model, needs network + `ffmpeg`.
-- **VoxCPM2** — the *real* Silver voice (voice-design from a text description), but a
-  2B model that needs an NVIDIA GPU for real-time. Not wired in v1.
-- **Piper** — fully offline, lightweight; set `tts_voice` to a `.onnx` model path.
+| Engine | Cost | Notes |
+|---|---|---|
+| **Kokoro** *(default)* | Free, local | Kokoro-82M — real-time on CPU, Apache-2.0. Weights download on first run. |
+| **Edge** | Free, cloud | Microsoft Edge TTS. Needs network + `ffmpeg`. |
+| **Piper** | Free, local | Fully offline, lightweight. Set `tts_voice` to a `.onnx` model path. |
+| **VoxCPM2** | Free, local | The full voice-design experience (describe a voice, get it). 2B params, needs an NVIDIA GPU — planned. |
 
-## Config
+## Configuration
 
-`~/.config/silver/config.json` (chmod 600). Notable keys:
+`~/.config/silver/config.json` (permissions 600). Notable keys:
 
 ```jsonc
 {
@@ -113,12 +148,21 @@ The behaviors you asked for, each owned by one place:
 
 Logs: `~/.config/silver/silverd.log`.
 
-## Notes & known limitations
+## Roadmap
 
-- "silver" alone is a common word — it false-triggers. Default phrases use "hey
-  silver" / "what's up silver" first; keep "silver" last or drop it.
-- The volume duck adjusts the *whole* sink, so if music is playing it dips too. A
-  dedicated output route (cleaner) is a follow-up.
-- No barge-in: she finishes before listening again.
-- First `run` downloads the whisper model, sherpa KWS model, and Kokoro weights
-  (a few hundred MB total, one-time).
+- **VoxCPM2 voice design** — give Silver her *actual* voice from a text description.
+- **Barge-in** — interrupt her mid-sentence instead of waiting.
+- **Dedicated audio route** — her own volume without dipping whatever else is playing.
+- **Voice authentication** — so "anyone who can speak into the mic" isn't a warning.
+
+## Known limitations
+
+- *"Silver"* alone is a common word and can false-trigger; the defaults lead with
+  *"hey silver"* and *"what's up silver"*.
+- The volume duck adjusts the whole sink, so music playing dips with her voice.
+- First run downloads the whisper model, sherpa KWS model, and Kokoro weights — a
+  few hundred MB, one time.
+
+## License
+
+[MIT](LICENSE) © NotATrueHero
