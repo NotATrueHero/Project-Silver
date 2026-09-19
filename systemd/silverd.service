@@ -1,0 +1,12 @@
+[Unit]
+Description=Silver voice companion
+After=pipewire.service wireplumber.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/silver/venv/bin/python %h/.local/share/silver/silverd.py run
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

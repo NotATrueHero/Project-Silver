@@ -1,0 +1,7 @@
+sounddevice
+numpy
+faster-whisper
+sherpa-onnx
+kokoro>=0.9.4
+soundfile
+edge-tts
