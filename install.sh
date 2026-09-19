@@ -94,10 +94,13 @@ chmod +x "$PREFIX/silverd.py"
 mkdir -p "$PREFIX/profile"
 curl -fsSL "$SOUL_URL" -o "$PREFIX/profile/SOUL.md" 2>/dev/null || true
 
-# Launcher on PATH
+# Launcher on PATH — activates the venv so subprocesses (uv, spacy model
+# auto-download) find the right environment.
 mkdir -p "$BIN_DIR"
 cat > "$BIN_DIR/silverd" <<EOF
 #!/usr/bin/env sh
+export VIRTUAL_ENV="$VENV"
+export PATH="$VENV/bin:\$PATH"
 exec "$VENV/bin/python" "$PREFIX/silverd.py" "\$@"
 EOF
 chmod +x "$BIN_DIR/silverd"

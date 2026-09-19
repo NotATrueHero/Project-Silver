@@ -74,7 +74,7 @@ SHERPA_MODEL_URL = (
 )
 SHERPA_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 RAW_BASE = os.environ.get(
     "SILVER_RAW_BASE", "https://raw.githubusercontent.com/NotATrueHero/Project-Silver/main"
 )
@@ -590,6 +590,9 @@ class Silver:
                                 self._speak(reply)
                             except Exception as e:
                                 log(f"silver: brain/tts error: {e}")
+                                if self.cfg.get("backend") == "agent":
+                                    log("silver: hint — agent mode needs a Hermes api_server at "
+                                        "agent_url; is the gateway running? (or set backend to 'lite')")
                                 self._speak("Sorry, something went wrong on my end.")
                     # resume the wake stream (open a fresh one)
                     awake = False
